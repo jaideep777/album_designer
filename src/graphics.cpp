@@ -576,7 +576,7 @@ void Frame::setLayer(int l){
 
 }
 
-void Frame::resize(float _x0, float _y0, float _x1, float _y1){
+void Frame::setSize(float _x0, float _y0, float _x1, float _y1){
 	x0 = _x0; y0 = _y0; x1 = _x1; y1 = _y1;
 	model = glm::mat4(1.f);
 	model = glm::translate(model, glm::vec3(x0, y0, 0.f));
@@ -586,6 +586,7 @@ void Frame::resize(float _x0, float _y0, float _x1, float _y1){
 //	glm::vec4 a = model*glm::vec4(1.f,1.f,0.f,1.f);
 //	cout << "Resized Frame Vec:" << a.x << " " << a.y << " " << a.z << " " << a.w << endl;
 }
+
 
 float Frame::containsPixel(int x, int y){
 	float winw = glutGet(GLUT_WINDOW_WIDTH);
@@ -650,6 +651,10 @@ void Frame::move(float xi, float yi, float xf, float yf){
 }
 
 
+void Frame::resize(float xi, float yi, float xf, float yf){
+	model = glm::scale(model, glm::vec3((xf-x0)/(xi-x0), (yf-y0)/(yi-y0), 1.f));
+	x1 += xf-xi; y1+= yf-yi;
+}
 
 // ===========================================================
 // class Renderer
@@ -984,6 +989,7 @@ Shape * selectedShape = NULL;
 
 bool lMousePressed, rMousePressed, mMousePressed;
 float mouse_x0=0, mouse_y0=0;
+string mousetransform = "";
 
 void mousePress(int button, int state, int x, int y){
 	switch (button) {
@@ -997,11 +1003,13 @@ void mousePress(int button, int state, int x, int y){
 					delete selectionBox;
 					selectionBox = NULL;
 				}
-				
-				if (selectedShape ==NULL  || selectedShape->cursorLocation(x,y) == 0)
+
+				// When shape is selected, scale cursor can outside the shape, and cause it to get deselected upon clicking. Therefore, select new shape only if current selection is null or pointer is outside of currently selected shape
+				if (selectedShape == NULL  || selectedShape->cursorLocation(x,y) == 0)
 					selectedShape = glRenderer->pick(x, y);
+					
 //				cout << "xy = " << x << " " << y << endl;
-				// FIXME implement bounding box in Shape itself.
+				// FIXME implement bounding box in Shape itself. update bbox in setVertices. For other computations, apply model matrix to bbox
 				if (selectedShape != NULL){
 					float x0=((Frame*)selectedShape)->x0, 
 						  y0=((Frame*)selectedShape)->y0, 
@@ -1026,10 +1034,16 @@ void mousePress(int button, int state, int x, int y){
 					
 					selectedShape->changeCursor(x,y);
 					
+					int a = selectedShape->cursorLocation(x,y);
+					if (a == 0) mousetransform = "";
+					else if (a == 1) mousetransform = "t";
+					else if (a > 20) mousetransform = "s";
+					
 				}
 			}
 			else{
 				lMousePressed = 0;
+				mousetransform = "";
 //				if (selectedShape != NULL) selectedShape->changeCursor(x,y);
 
 //				if (selectionBox != NULL){
@@ -1078,6 +1092,8 @@ void mouseMove(int x, int y){
 	float winh = glutGet(GLUT_WINDOW_HEIGHT);
 	float winw = glutGet(GLUT_WINDOW_WIDTH);
 	
+//	cout << "transform: " << mousetransform << endl;
+	
 	int cursorLoc = 0;
 	if (selectedShape != NULL){
 		cursorLoc = selectedShape->cursorLocation(x,y);
@@ -1099,8 +1115,8 @@ void mouseMove(int x, int y){
 		if (selectedShape != NULL ){
 			glm::vec3 dp = p-p0;
 
-			if (cursorLoc == 1) selectedShape->move(p0.x, p0.y, p.x, p.y);
-			else if (cursorLoc == 24) selectedShape->resize(75, 75, 100, 100);
+			if (mousetransform == "t") selectedShape->move(p0.x, p0.y, p.x, p.y);
+			else if (mousetransform == "s") selectedShape->resize(p0.x, p0.y, p.x, p.y);
 			selectionBox->model = glm::translate(selectionBox->model, dp);
 		}
 //		glRenderer->camera_rx += 0.2*(y - mouse_y0);

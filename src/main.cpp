@@ -48,12 +48,12 @@ int main(int argc, char ** argv){
 	Frame f1(25, 25, 75, 50, image, 3,2);
 ////	f1.setExtent(-100,100,-100,100);
 	f1.setLayer(100);
-	f1.resize(50,50,75,75);
+	f1.setSize(50,50,75,75);
 //	f1.setLayer(10);
 	
 	Frame f2(0,0,50,50, image, 3,2);
 	f2.setLayer(1);
-	f2.resize(25,25,50,50);
+//	f2.resize(25,25,50,50);
 	
 	while(1){       // infinite loop needed to poll anim_on signal.
 		glutMainLoopEvent();

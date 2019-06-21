@@ -97,7 +97,8 @@ class Shape{
 	virtual void  changeCursor(int x, int y){};
 	virtual void  move(float xi, float yi, float xf, float yf);
 	virtual int   cursorLocation(int x, int y){return 0;} // tells if cursor is outside (0), inside(1), bottom-edge (21), left-edge (22), top edge(23), right edge (24)
-	virtual void  resize(float _x0, float _y0, float _x1, float _y1){};
+	virtual void  setSize(float _x0, float _y0, float _x1, float _y1){};
+	virtual void  resize(float xi, float yi, float xf, float yf){};
 
 };
 
@@ -118,12 +119,12 @@ class Frame : public Shape{
 	Frame(float _x0, float _y0, float _x1, float _y1, unsigned char* image, int width, int height);
 	void setLayer(int l);
 	void setExtent(float xmin, float xmax, float ymin, float ymax);
-	void resize(float _x0, float _y0, float _x1, float _y1);
+	void setSize(float _x0, float _y0, float _x1, float _y1);
 	float containsPixel(int x, int y);	// return z value at pixel found
 	void move(float xi, float yi, float xf, float yf);
 	void changeCursor(int x, int y);
 	int  cursorLocation(int x, int y); // tells if cursor is outside (0), inside(1), bottom-edge (21), left-edge (22), top edge(23), right edge (24)
-
+	void resize(float xi, float yi, float xf, float yf);
 };
 
 
