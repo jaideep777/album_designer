@@ -4,6 +4,9 @@
 #include "../utils/simple_math.h"
 #include "../utils/simple_histogram.h"
 
+#include <algorithm>
+using namespace std;
+
 Renderer * glRenderer = NULL;
 int generic_count = 0;
 
@@ -296,6 +299,8 @@ Shape::Shape(int nVert, int components_per_vertex, string _type, string shader_n
 	glGenBuffers(1, &ebo);
 	glGenBuffers(1, &tbo);
 	
+	glGenTextures(1, &tex);
+
 	glRenderer->addShape(this);
 	
 	b_render = ren;
@@ -307,22 +312,24 @@ Shape::~Shape(){
 	deleteShaders();
 	
 //	cout << "destroy " << objName << endl;
-	if (textured){
-	glBindTexture(GL_TEXTURE_2D, 0);
+//	if (textured){
+//	glBindTexture(GL_TEXTURE_2D, tex);
 	glDeleteTextures(1, &tex);
-	}
+//	}
 	
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+//	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 	glDeleteBuffers(1, &ebo);
 
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
+//	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glDeleteBuffers(1, &vbo);
 
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
+//	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glDeleteBuffers(1, &cbo);
 
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
+//	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glDeleteBuffers(1, &tbo);
+	
+	glRenderer->removeShape(this);
 	
 }
 
@@ -360,7 +367,6 @@ void Shape::applyTexture(float* uvs, unsigned char* pixels, int width, int heigh
 	glBufferData(GL_ARRAY_BUFFER, nVertices*2*sizeof(float), uvs, GL_DYNAMIC_DRAW);
 	//   ^ Not using glBufferSubData here, assuming UVs will be set only once.
 
-	glGenTextures(1, &tex);
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, tex);
 	glUniform1i(glGetUniformLocation(program_id, "tex"), 0);
@@ -394,6 +400,7 @@ void Shape::render(){
 	if (textured){
 	glBindBuffer(GL_ARRAY_BUFFER, tbo);
 	glVertexAttribPointer(glGetAttribLocation(program_id, "in_UV"), 2, GL_FLOAT, GL_FALSE, 0, 0);
+	glBindTexture(GL_TEXTURE_2D, tex);
 	}
 	
 	glEnableVertexAttribArray(0);
@@ -495,6 +502,10 @@ void Shape::setExtent(vector <float>& ex){
 	model = glm::translate(model, -glm::vec3(float(ex[0]), float(ex[1]), float(ex[2])));
 }
 
+void Shape::move(float x0ndc, float y0ndc, float xndc, float yndc){
+	// must be implemented in the plane parpendicular to camera axis	
+}
+
 Shape2D::Shape2D(int nVert, string _type, string shader_name, bool ren) : Shape(nVert, 2, _type, shader_name, ren) {}
 
 void Shape2D::setExtent(float xmin, float xmax, float ymin, float ymax){
@@ -502,23 +513,29 @@ void Shape2D::setExtent(float xmin, float xmax, float ymin, float ymax){
 }
 
 
-Frame::Frame(float _x0, float _y0, float _x1, float _y1, unsigned char* image)
+Frame::Frame(float _x0, float _y0, float _x1, float _y1, unsigned char* image, int width, int height)
 	: Shape(4,3,"triangles", "tex"){
 
-//	model = glm::ortho(0.f, 100.f, 0.f, 100.f, -10.f, 100.f);
 	x0 = _x0; y0 = _y0; x1 = _x1; y1 = _y1;
 	layer = 0;
 	
+	model = glm::mat4(1.f);
+	model = glm::translate(model, glm::vec3(x0, y0, 0.f));
+	model = glm::scale(model, glm::vec3(x1-x0, y1-y0, 1.f));
+
+//	glm::vec4 a = model*glm::vec4(1.f,1.f,0.f,1.f);
+//	cout << "Frame Vec:" << a.x << " " << a.y << " " << a.z << " " << a.w << endl;
+	
 	float verts[] = {
-		_x1, _y1, 0,
-		_x0, _y1, 0,
-		_x0, _y0, 0,
-		_x1, _y0, 0
-	};
+		1, 1, 0,
+		0, 1, 0,
+		0, 0, 0,
+		1, 0, 0
+	};	
 	
 	int tess_ids[] = {0,1,2,2,3,0};
 
-//	float UVs[] = {
+//	float UVs[] = {	// unmirrored UVs
 //	   1.0f, 1.0f,
 //	   0.0f, 1.0f,
 //	   0.0f, 0.0f,
@@ -532,7 +549,7 @@ Frame::Frame(float _x0, float _y0, float _x1, float _y1, unsigned char* image)
 	};
 	setVertices(verts);	
 	setElements(tess_ids, 6);
-	applyTexture(UVs, image, 3,2);
+	applyTexture(UVs, image, width, height);
 
 }
 
@@ -540,16 +557,98 @@ void Frame::setExtent(float xmin, float xmax, float ymin, float ymax){
 	model = glm::ortho(xmin, xmax, ymin, ymax, 0.f, 100.f);
 }
 
+//void Frame::setPosition(float x0, float y0){
+//	model = glm::translate(model, ...);
+//}
+
 void Frame::setLayer(int l){
+//	float verts[] = {
+//		x1, y1, 0.1f*l,
+//		x0, y1, 0.1f*l,
+//		x0, y0, 0.1f*l,
+//		x1, y0, 0.1f*l
+//	};
+//	setVertices(verts);	
+	model = glm::translate(model, glm::vec3(0.f, 0.f, 0.1f*(l-layer)));
 	layer = l;
-	float verts[] = {
-		x1, y1, 0.1f*l,
-		x0, y1, 0.1f*l,
-		x0, y0, 0.1f*l,
-		x1, y0, 0.1f*l
-	};
-	setVertices(verts);	
+//	glm::vec4 a = model*glm::vec4(1.f,1.f,0.f,1.f);
+//	cout << "Frame Vec:" << a.x << " " << a.y << " " << a.z << " " << a.w << endl;
+
 }
+
+void Frame::resize(float _x0, float _y0, float _x1, float _y1){
+	x0 = _x0; y0 = _y0; x1 = _x1; y1 = _y1;
+	model = glm::mat4(1.f);
+	model = glm::translate(model, glm::vec3(x0, y0, 0.f));
+	model = glm::scale(model, glm::vec3(x1-x0, y1-y0, 1.f));
+	model = glm::translate(model, glm::vec3(0.f, 0.f, 0.1f*layer));
+
+//	glm::vec4 a = model*glm::vec4(1.f,1.f,0.f,1.f);
+//	cout << "Resized Frame Vec:" << a.x << " " << a.y << " " << a.z << " " << a.w << endl;
+}
+
+float Frame::containsPixel(int x, int y){
+	float winw = glutGet(GLUT_WINDOW_WIDTH);
+	float winh = glutGet(GLUT_WINDOW_HEIGHT);
+	float xndc = 2*x/winw-1;
+	float yndc = 1-2*y/winh;
+//				cout << "xyndc = " << xndc << " " << yndc << endl;
+
+	glm::vec4 p = glm::inverse(glRenderer->projection * glRenderer->view)*glm::vec4(xndc, yndc, 0.f, 1.f);
+//				cout << "world xy = " << p.x << " " << p.y << endl;	
+	
+	if (p.x > x0 && p.x < x1 && p.y > y0 && p.y < y1) {
+		return layer;
+	}
+	else return -1e20;
+}
+
+int Frame::cursorLocation(int x, int y){
+	float winw = glutGet(GLUT_WINDOW_WIDTH);
+	float winh = glutGet(GLUT_WINDOW_HEIGHT);
+	float xndc = 2*x/winw-1;
+	float yndc = 1-2*y/winh;
+//				cout << "xyndc = " << xndc << " " << yndc << endl;
+
+	glm::vec4 p = glm::inverse(glRenderer->projection * glRenderer->view)*glm::vec4(xndc, yndc, 0.f, 1.f);
+//				cout << "world xy = " << p.x << " " << p.y << endl;	
+
+	float d = 0.5;
+	float ar = (x1-x0)/(y1-y0);
+	if (p.x > (x0+d) && p.x < (x1-d) && p.y > (y0+d*ar) && p.y < (y1-d*ar)) return 1;
+	else if (p.x < (x0-d) || p.x > (x1+d) || p.y < (y0-d*ar) || p.y > (y1+d*ar)) return 0;
+	else if (p.y > (y0-d*ar) && p.y < (y0+d*ar)) return 21;
+	else if (p.x > (x0-d) && p.x < (x0+d)) return 22;
+	else if (p.y > (y1-d*ar) && p.y < (y1+d*ar)) return 23;
+	else if (p.x > (x1-d) && p.x < (x1+d)) return 24;
+	else return 0;
+	
+
+}
+
+
+void Frame::changeCursor(int x, int y){
+	
+	int cloc = cursorLocation(x,y);
+	if (cloc == 1) glutSetCursor(GLUT_CURSOR_CROSSHAIR);
+	else if (cloc == 0) glutSetCursor(GLUT_CURSOR_INHERIT);
+	else if (cloc == 21 || cloc == 23) glutSetCursor(GLUT_CURSOR_UP_DOWN);
+	else if (cloc == 22 || cloc == 24) glutSetCursor(GLUT_CURSOR_LEFT_RIGHT);
+	else glutSetCursor(GLUT_CURSOR_INHERIT);
+}
+
+void Frame::move(float xi, float yi, float xf, float yf){
+//	glm::vec3 p = glm::inverse(glRenderer->projection * glRenderer->view)*glm::vec4(xndc, yndc, 0.f, 1.f);
+//	glm::vec3 p0 = glm::inverse(glRenderer->projection * glRenderer->view)*glm::vec4(x0ndc, y0ndc, 0.f, 1.f);
+//				cout << "world xy = " << p0.x << " " << p0.y << " --> " 
+//					 << p.x << " " << p.y  << endl;	
+
+	glm::vec3 dp = glm::vec3(xf,yf,0)-glm::vec3(xi,yi,0);
+	model = glm::translate(model, glm::vec3(dp.x/(x1-x0), dp.y/(y1-y0), 0));
+	x0 += dp.x; x1 += dp.x;
+	y0 += dp.y; y1 += dp.y;
+}
+
 
 
 // ===========================================================
@@ -568,29 +667,20 @@ void Renderer::init(){
 
 	up_axis = 010;
 
-	window_width = 512;
-	window_height = 512;
+	window_width = 2048;
+	window_height = 1024;
+	viewport_aspect_ratio = 2;
 	
-	view = glm::translate(glm::mat4(1.0f), glm::vec3(0.f, 0.f, -100.0f) );
+//	view = glm::translate(glm::mat4(1.0f), glm::vec3(0.f, 0.f, -100.0f) );
 	camera_tx = camera_ty = camera_rx = camera_ry = 0;
 	camera_s = 1;
 
-//	if (up_axis == 010){	
-//		view = glm::lookAt(glm::vec3(0.0f, 0.0f, 100.0f), 
-//						   glm::vec3(0.0f, 0.0f, 0.0f), 
-//						   glm::vec3(0.0f, 1.0f, 0.0f));
-//	  	view = glm::translate(view, glm::vec3(camera_tx, camera_ty, 0));
-//  	}
-// 	else if (up_axis == 001){
-//		view = glm::lookAt(glm::vec3(0.0f, -100.0f, 0.0f), 
-//						   glm::vec3(0.0f, 0.0f, 0.0f), 
-//						   glm::vec3(0.0f, 0.0f, 1.0f));
-//	  	view = glm::translate(view, glm::vec3(camera_tx, camera_ty, 0));
-// 	}
-// 	
- 	 	
-	//projection = glm::perspective(glm::radians(90.0f), float(window_width) / window_height, 0.1f, 1000.0f);
-	projection = glm::ortho(0.0f, 100.0f, 0.0f, 100.0f, 0.f, 100.0f);
+	view = glm::lookAt(glm::vec3(0.0f, 0.0f, 100.0f), 
+					   glm::vec3(0.0f, 0.0f, 0.0f), 
+					   glm::vec3(0.0f, 1.0f, 0.0f));
+
+ 	//projection = glm::perspective(glm::radians(90.0f), float(window_width) / window_height, 0.1f, 1000.0f);
+	projection = glm::ortho(-10.0f, 110.0f, -10.0f, 110.0f, -10.f, 110.0f);
 
 	glm::vec4 a = projection*view*glm::vec4(1,0,0,1);
 	cout << "Vec:" << a.x << " " << a.y << " " << a.z << " " << a.w << endl;
@@ -623,6 +713,10 @@ int Renderer::getDisplayInterval(){
 
 int Renderer::addShape(Shape* shp){
 	shapes_vec.push_back(shp);
+}
+
+int Renderer::removeShape(Shape* shp){
+	shapes_vec.erase(find(shapes_vec.begin(), shapes_vec.end(), shp));
 }
 
 void Renderer::togglePause(){
@@ -704,6 +798,24 @@ string Renderer::makeTitle(){
 }
 
 
+
+Shape * Renderer::pick(int x, int y){
+	
+	Shape * pickedShape = NULL;
+	float zmax = -1e20;
+	cout << "Contains Pixel: ";
+	for (int i=0; i<glRenderer->shapes_vec.size(); ++i){
+		float z = shapes_vec[i]->containsPixel(x,y);
+		cout << z << " ";
+		if (z != -1e20 && z > zmax && z > 0) pickedShape = shapes_vec[i];
+		zmax = z;
+	}
+	cout << endl;
+	return pickedShape;
+}
+
+
+
 // =================================================================================
 //
 //			OpenGL functions and callbacks
@@ -749,19 +861,24 @@ bool init_hyperGL(int *argc, char **argv){
 	glutSpecialFunc(specialKeyPress);
 	glutMouseFunc(mousePress);
 	glutMotionFunc(mouseMove);
+	glutPassiveMotionFunc(mouseHover);
 //	glutIdleFunc(NULL);	// start animation immediately. Otherwise init with NULL	
-	glutTimerFunc(glRenderer->getDisplayInterval(), timerEvent, 0);
+	//glutTimerFunc(glRenderer->getDisplayInterval(), timerEvent, 0);
 //	glutCloseFunc(cleanup);
 	
     // default initialization
-    glClearColor(0.0, 0.0, 0.0, 0.0);
+    glClearColor(0.5, 0.5, 0.5, 0.0);
     glEnable(GL_PROGRAM_POINT_SIZE);
     glEnable(GL_DEPTH_TEST);
 	glEnable( GL_BLEND );
 	glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
 
+	glLineWidth(2);
+
 	glGenVertexArrays(1, &glRenderer->vao_id);
 	glBindVertexArray(glRenderer->vao_id);
+
+//	glViewport(0, 0, glRenderer->window_width, glRenderer->window_height);
 
     return true;
 }
@@ -776,27 +893,9 @@ void cleanup_hyperGL(){
 
 void display(){
 	
+	//cout << "render..." << endl;
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-//	if (glRenderer->up_axis == 010){
-//		glRenderer->view = glm::lookAt(glm::vec3(0.0f, 0.0f, 100.0f), 
-//	  								   glm::vec3(0.0f, 0.0f, 0.0f),
-//	  								   glm::vec3(0.0f, 1.0f, 0.0f));
-//	  	glRenderer->view = glm::translate(glRenderer->view, glm::vec3(glRenderer->camera_tx, glRenderer->camera_ty, 0));
-//	  	glRenderer->view = glm::scale(glRenderer->view, glm::vec3(glRenderer->camera_s, glRenderer->camera_s, glRenderer->camera_s));
-//	  	glRenderer->view = glm::rotate(glRenderer->view, glRenderer->camera_rx*0.1f, glm::vec3(1.f, 0.f, 0.f));
-//	  	glRenderer->view = glm::rotate(glRenderer->view, glRenderer->camera_ry*0.1f, glm::vec3(0.f, 1.f, 0.f));
-//	}
-//	else if (glRenderer->up_axis == 001){
-//		glRenderer->view = glm::lookAt(glm::vec3(0.0f, -100.0f, 0.0f), 
-//	  								   glm::vec3(0.0f, 0.0f, 0.0f),
-//	  								   glm::vec3(0.0f, 0.0f, 1.0f));
-//	  	glRenderer->view = glm::translate(glRenderer->view, glm::vec3(glRenderer->camera_tx, 0, glRenderer->camera_ty));
-//	  	glRenderer->view = glm::scale(glRenderer->view, glm::vec3(glRenderer->camera_s, glRenderer->camera_s, glRenderer->camera_s));
-//	  	glRenderer->view = glm::rotate(glRenderer->view, glRenderer->camera_rx*0.1f, glm::vec3(1.f, 0.f, 0.f));
-//	  	glRenderer->view = glm::rotate(glRenderer->view, glRenderer->camera_ry*0.1f, glm::vec3(0.f, 0.f, 1.f));
-//	}
-		
 //	render all shapes in list
 	for (int i=0; i<glRenderer->shapes_vec.size(); ++i){
 		Shape * s = glRenderer->shapes_vec[i];
@@ -813,21 +912,30 @@ void display(){
 
 // ============================ CALLBACKS ====================================//
 
-void timerEvent(int value){
-	
-//	glRenderer->psys->animate();
+//void timerEvent(int value){
+//	
+////	glRenderer->psys->animate();
 
-    glutSetWindowTitle(glRenderer->makeTitle().c_str());
+//    glutSetWindowTitle(glRenderer->makeTitle().c_str());
 
-	if (glRenderer->updateMode == Time) glutPostRedisplay();
-	glutTimerFunc(glRenderer->getDisplayInterval(), timerEvent, 0);
-}
+//	if (glRenderer->updateMode == Time) glutPostRedisplay();
+//	glutTimerFunc(glRenderer->getDisplayInterval(), timerEvent, 0);
+//}
 
 
 void reshape(int w, int h){
-	int x = min(w,h); 	// keep window square
+	
+	int w0 = glRenderer->window_width;
+	int h0 = glRenderer->window_height;
+	float a = glRenderer->viewport_aspect_ratio;
+
+	int w1 = min(w, int(h*a));
+	int h1 = min(h, int(w1/a));
+	w1 = h1*a;
+		
+	int x = min(w,h); 	
     // viewport
-    glViewport(0, 0, x, x);
+    glViewport(fabs(w-w1)/2, fabs(h-h1)/2, w1, h1);
 //	glRenderer->tailLen = glRenderer->tailLen_def * glRenderer->xmax*float(glRenderer->window_height)/float(x);	
 }
 
@@ -871,6 +979,9 @@ void keyPress(unsigned char key, int x, int y){
 
 }
 
+Shape * selectionBox = NULL;
+Shape * selectedShape = NULL;
+
 bool lMousePressed, rMousePressed, mMousePressed;
 float mouse_x0=0, mouse_y0=0;
 
@@ -881,9 +992,50 @@ void mousePress(int button, int state, int x, int y){
 				lMousePressed = 1;
 				mouse_x0 = x;
 				mouse_y0 = y;
+				
+				if (selectionBox != NULL){
+					delete selectionBox;
+					selectionBox = NULL;
+				}
+				
+				if (selectedShape ==NULL  || selectedShape->cursorLocation(x,y) == 0)
+					selectedShape = glRenderer->pick(x, y);
+//				cout << "xy = " << x << " " << y << endl;
+				// FIXME implement bounding box in Shape itself.
+				if (selectedShape != NULL){
+					float x0=((Frame*)selectedShape)->x0, 
+						  y0=((Frame*)selectedShape)->y0, 
+						  x1=((Frame*)selectedShape)->x1,
+						  y1=((Frame*)selectedShape)->y1;
+//					cout << "selected shape bounds: " << x0 << " " << y0 << " " << x1 << " " << y1 << endl;
+					float pos3[] = {x0,y0,100, x1,y0,100, x1,y0,100, x1,y1,100, x1,y1,100, x0,y1,100, x0,y1,100, x0,y0,100};
+					float rr=0,gg=0.3,bb=0.3,aa=1;
+					float col3[] = {rr,gg,bb, aa,
+									rr,gg,bb, aa,
+									rr,gg,bb, aa,
+									rr,gg,bb, aa,
+									rr,gg,bb, aa,
+									rr,gg,bb, aa,
+									rr,gg,bb, aa,
+									rr,gg,bb, aa
+								   };
+					
+					selectionBox = new Shape(8, 3, "lines");
+					selectionBox->setVertices(pos3);
+					selectionBox->setColors(col3);
+					
+					selectedShape->changeCursor(x,y);
+					
+				}
 			}
 			else{
 				lMousePressed = 0;
+//				if (selectedShape != NULL) selectedShape->changeCursor(x,y);
+
+//				if (selectionBox != NULL){
+//					delete selectionBox;
+//					selectionBox = NULL;
+//				}
 			} 
 		break;
 
@@ -912,25 +1064,59 @@ void mousePress(int button, int state, int x, int y){
 		default:
 		break;
 	}
+	glutPostRedisplay();
+
+}
+
+void mouseHover(int x, int y){
+	if (selectedShape != NULL){
+		selectedShape->changeCursor(x,y);
+	}
 }
 
 void mouseMove(int x, int y){
-	float h = glutGet(GLUT_WINDOW_HEIGHT);
-	float w = glutGet(GLUT_WINDOW_WIDTH);
+	float winh = glutGet(GLUT_WINDOW_HEIGHT);
+	float winw = glutGet(GLUT_WINDOW_WIDTH);
+	
+	int cursorLoc = 0;
+	if (selectedShape != NULL){
+		cursorLoc = selectedShape->cursorLocation(x,y);
+		selectedShape->changeCursor(x,y);
+	}
+	
 	if (lMousePressed == 1){
-		glRenderer->camera_rx += 0.2*(y - mouse_y0);
-		glRenderer->camera_ry += 0.2*(x - mouse_x0);
+		// get initial and final mouse position in world coordinates
+		float xndc = 2*x/winw-1;
+		float yndc = 1-2*y/winh;
+
+		float x0ndc = 2*mouse_x0/winw-1;
+		float y0ndc = 1-2*mouse_y0/winh;
+	
+		glm::vec3 p = glm::inverse(glRenderer->projection * glRenderer->view)*glm::vec4(xndc, yndc, 0.f, 1.f);
+		glm::vec3 p0 = glm::inverse(glRenderer->projection * glRenderer->view)*glm::vec4(x0ndc, y0ndc, 0.f, 1.f);
+		
+		// if any shape is selected, move the shape and the selection box
+		if (selectedShape != NULL ){
+			glm::vec3 dp = p-p0;
+
+			if (cursorLoc == 1) selectedShape->move(p0.x, p0.y, p.x, p.y);
+			else if (cursorLoc == 24) selectedShape->resize(75, 75, 100, 100);
+			selectionBox->model = glm::translate(selectionBox->model, dp);
+		}
+//		glRenderer->camera_rx += 0.2*(y - mouse_y0);
+//		glRenderer->camera_ry += 0.2*(x - mouse_x0);
 	}
 	if (rMousePressed == 1){
-		float r = (y - mouse_y0)/h;
-		glRenderer->camera_s *= 1+r;
+//		float r = (y - mouse_y0)/h;
+//		glRenderer->camera_s *= 1+r;
 	}
 	if (mMousePressed == 1){
-		glRenderer->camera_ty -= (h/2.5)*(y - mouse_y0)/h;	// -= because y is measured from top
-		glRenderer->camera_tx += (w/2.5)*(x - mouse_x0)/w;
+//		glRenderer->camera_ty -= (h/2.5)*(y - mouse_y0)/h;	// -= because y is measured from top
+//		glRenderer->camera_tx += (w/2.5)*(x - mouse_x0)/w;
 	}
 	mouse_y0 = y;
 	mouse_x0 = x;
+	
 	glutPostRedisplay();
 
 }

@@ -9,29 +9,10 @@ using namespace std;
 
 
 int main(int argc, char ** argv){
-	float pos[] = {   50, 0, 0,//0.5,
-				  0, 25, 0,//-0.5,
-				  0,  0, -30,//  -1,
-				  25,   25, -10 //  1,
-				};
-
-	float col[] = {1,0,0, 1,
-				   0,1,0, 1,
-				   0,0,1, 1,
-				   1,1,1, 1
-				   };
 
 	init_hyperGL(&argc, argv);
 	
-
-	Shape pt(4, 3, "points"); // (no. of points, components per point (2/3), render method);
-	pt.pointSize = 8;
-	pt.setVertices(pos);	
-	pt.setColors(col);
-//	pt.autoExtent(pos);	
-
-	
-	float pos3[] = {0,0,0, 100,0,0, 0,0,0, 0,100,0, 0,0,0, 0,0,100};
+	float pos3[] = {0,50,0, 100,50,0, 50,0,0, 50,100,0, 0,0,0, 0,0,100};
 	float col3[] = {1,0,0, 0.5,
 				    1,0,0, 0.5,
 				    0,1,0, 0.5,
@@ -45,27 +26,9 @@ int main(int argc, char ** argv){
 	axis.setColors(col3);
 
 
-	GLfloat pos4[] = {
-	   50.f,  50.f, 0.0f,
-	  -50.f,  50.f, 0.0f,
-	  -50.f, -50.f, 0.0f,
-	   50.f, -50.f, 0.0f
-	};
-	float col4[] = {
-	  0, 0,1,1, 	0, 1, 0,1,
-	  1,0,0,1,      1,1,1,1
-	};
-	int tess_ids[] = {0,1,2,2,3,0};
-
 	unsigned char image[] = {
 	  0, 0,255,255, 	0, 255, 0,255,    0,255,255,255,
 	  255,0,0,255,    255,255,255,255,    255,255,0,255   
-	};
-	float UVs[] = {
-	   1.0f, 1.0f,
-	   0.0f, 1.0f,
-	   0.0f, 0.0f,
-	   1.0f, 0.0f
 	};
 
 //	Shape f(4, 3, "triangles", "tex"); // (no. of points, components per point (2/3), render method);
@@ -74,10 +37,23 @@ int main(int argc, char ** argv){
 ////	f.setColors(col4);
 //	f.setElements(tess_ids, 6);
 //	f.applyTexture(UVs, image, 3,2);
-
-	Frame f1(0, 0, 50, 50, image);
-//	f1.setExtent(-100,100,-100,100);
+	
+	unsigned char canvaspixels[] = {
+	  255,255,255,255, 	255,255,255,255, 
+	  255,255,255,255,  255,255,255,255, 
+	};
+	Frame canvas(0,0, 100, 100, canvaspixels, 2,2);
+	canvas.setLayer(-1);
+	
+	Frame f1(25, 25, 75, 50, image, 3,2);
+////	f1.setExtent(-100,100,-100,100);
 	f1.setLayer(100);
+	f1.resize(50,50,75,75);
+//	f1.setLayer(10);
+	
+	Frame f2(0,0,50,50, image, 3,2);
+	f2.setLayer(1);
+	f2.resize(25,25,50,50);
 	
 	while(1){       // infinite loop needed to poll anim_on signal.
 		glutMainLoopEvent();

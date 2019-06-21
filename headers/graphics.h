@@ -92,6 +92,13 @@ class Shape{
 	void render();
 	
 	void useProgram();
+	
+	virtual float containsPixel(int x, int y){return -1e20;}
+	virtual void  changeCursor(int x, int y){};
+	virtual void  move(float xi, float yi, float xf, float yf);
+	virtual int   cursorLocation(int x, int y){return 0;} // tells if cursor is outside (0), inside(1), bottom-edge (21), left-edge (22), top edge(23), right edge (24)
+	virtual void  resize(float _x0, float _y0, float _x1, float _y1){};
+
 };
 
 
@@ -99,16 +106,24 @@ class Shape2D : public Shape{
 	public:
 	Shape2D(int nVert, string _type, string shader_name= "", bool ren = true);
 	void setExtent(float xmin, float xmax, float ymin, float ymax);
+	float containsPixel(int x, int y){return -1e20;}
 };
 
 
 class Frame : public Shape{
+	public:
 	float x0, y0, x1, y1;
 	int layer;
 	public:
-	Frame(float _x0, float _y0, float _x1, float _y1, unsigned char* image);
+	Frame(float _x0, float _y0, float _x1, float _y1, unsigned char* image, int width, int height);
 	void setLayer(int l);
 	void setExtent(float xmin, float xmax, float ymin, float ymax);
+	void resize(float _x0, float _y0, float _x1, float _y1);
+	float containsPixel(int x, int y);	// return z value at pixel found
+	void move(float xi, float yi, float xf, float yf);
+	void changeCursor(int x, int y);
+	int  cursorLocation(int x, int y); // tells if cursor is outside (0), inside(1), bottom-edge (21), left-edge (22), top edge(23), right edge (24)
+
 };
 
 
@@ -142,6 +157,7 @@ class Renderer{
 
 	unsigned int window_width;
 	unsigned int window_height;
+	float viewport_aspect_ratio;
 
 	// coordinate system
 	float xmin, xmax, ymin, ymax, zmin, zmax;
@@ -175,6 +191,7 @@ class Renderer{
 
 	// add shapes to render list
 	int addShape(Shape* shp);
+	int removeShape(Shape* shp);
 
 	int  renderConsole();
 	int  renderAxes(float lim, float trans);
@@ -189,6 +206,8 @@ class Renderer{
 	void toggleText();
 	void toggleGrid();
 	void toggleAxes();
+	
+	Shape * pick(int x, int y);
 };
 
 // pointers to the particle system to display and renderer to render display
@@ -207,6 +226,7 @@ void reshape(int w, int h);
 void keyPress(unsigned char key, int x, int y);
 void specialKeyPress(int key, int x, int y);
 void mouseMove(int x, int y);
+void mouseHover(int x, int y);
 void mousePress(int button, int state, int x, int y);
 void display();
 void cleanup();
