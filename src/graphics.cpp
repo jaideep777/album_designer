@@ -282,7 +282,7 @@ Shape::Shape(int nVert, int components_per_vertex, string _type, string shader_n
 
 	type = _type;
 	nVertices = nVert;
-	model = glm::mat4(1.0f);
+	model = world = glm::mat4(1.0f);
 	pointSize = 1;
 	textured = false;
 
@@ -333,12 +333,34 @@ Shape::~Shape(){
 	
 }
 
-void Shape::setVertices(void* data){
+void Shape::setVertices(float* data){
 
 	glBindBuffer(GL_ARRAY_BUFFER, vbo); 	// Bring 1st buffer into current openGL context
 	glBufferSubData(GL_ARRAY_BUFFER, 0, dim*sizeof(float)*nVertices, data); 
 	// remove buffers from curent context. (appropriate buffers will be set bu CUDA resources)
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	
+	bbox1 = glm::vec3(-1e20f, -1e20f, -1e20f);
+	bbox0 = glm::vec3(1e20f, 1e20f, 1e20f);
+
+	for (int i=0; i<nVertices; ++i){
+		bbox0.x = fmin(bbox0.x, data[dim*i]);
+		bbox1.x = fmax(bbox1.x, data[dim*i]);
+
+		bbox0.y = fmin(bbox0.y, data[dim*i+1]);
+		bbox1.y = fmax(bbox1.y, data[dim*i+1]);
+		
+		
+		if (dim > 2){
+			bbox0.z = fmin(bbox0.z, data[dim*i+2]);
+			bbox1.z = fmax(bbox1.z, data[dim*i+2]);
+		}
+		else 
+			bbox0.z = bbox1.z = 0;
+	}
+	
+	cout << "Shape bounding box: [" << bbox0.x << " " << bbox0.y << " " << bbox0.z << "] ["  
+								    << bbox1.x << " " << bbox1.y << " " << bbox1.z << "]" << endl;
 	
 }
 
@@ -388,8 +410,8 @@ void Shape::render(){
 	
 	// set the point size to match physical scale
 	if (type == "points" ) setRenderVariable("psize", pointSize);
-	if (dim == 3) setShaderVariable("model", glRenderer->projection*glRenderer->view*model);
-	if (dim == 2) setShaderVariable("model", model);
+	if (dim == 3) setShaderVariable("model", glRenderer->projection*glRenderer->view*world*model);
+	if (dim == 2) setShaderVariable("model", world*model);
 
 	glBindBuffer(GL_ARRAY_BUFFER, vbo);
 	glVertexAttribPointer(glGetAttribLocation(program_id, "in_pos"), dim, GL_FLOAT, GL_FALSE, 0, 0);
@@ -424,16 +446,21 @@ vector <float> calcExtent(float* data, int nVertices, int dim){
 	glm::vec3 min(1e20f, 1e20f, 1e20f);
 
 	for (int i=0; i<nVertices; ++i){
-		centroid += glm::dvec3(data[dim*i], data[dim*i+1], data[dim*i+2]);
+		centroid += glm::dvec3(data[dim*i], data[dim*i+1], ((dim>2)? data[dim*i+2]:0));
 
 		min.x = fmin(min.x, data[dim*i]);
 		max.x = fmax(max.x, data[dim*i]);
 
 		min.y = fmin(min.y, data[dim*i+1]);
 		max.y = fmax(max.y, data[dim*i+1]);
-
-		min.z = fmin(min.z, data[dim*i+2]);
-		max.z = fmax(max.z, data[dim*i+2]);
+		
+		
+		if (dim > 2){
+			min.z = fmin(min.z, data[dim*i+2]);
+			max.z = fmax(max.z, data[dim*i+2]);
+		}
+		else 
+			min.z = max.z = 0;
 	}
 	centroid /= nVertices;
 	float dz = max.z - min.z;
@@ -516,13 +543,9 @@ void Shape2D::setExtent(float xmin, float xmax, float ymin, float ymax){
 Frame::Frame(float _x0, float _y0, float _x1, float _y1, unsigned char* image, int width, int height)
 	: Shape(4,3,"triangles", "tex"){
 
-	x0 = _x0; y0 = _y0; x1 = _x1; y1 = _y1;
+//	x0 = _x0; y0 = _y0; x1 = _x1; y1 = _y1;
 	layer = 0;
 	
-	model = glm::mat4(1.f);
-	model = glm::translate(model, glm::vec3(x0, y0, 0.f));
-	model = glm::scale(model, glm::vec3(x1-x0, y1-y0, 1.f));
-
 //	glm::vec4 a = model*glm::vec4(1.f,1.f,0.f,1.f);
 //	cout << "Frame Vec:" << a.x << " " << a.y << " " << a.z << " " << a.w << endl;
 	
@@ -550,11 +573,14 @@ Frame::Frame(float _x0, float _y0, float _x1, float _y1, unsigned char* image, i
 	setVertices(verts);	
 	setElements(tess_ids, 6);
 	applyTexture(UVs, image, width, height);
-
+	
+//	model = world = glm::mat4(1.f);
+	world = glm::translate(world, glm::vec3(_x0, _y0, 0.f));
+	model = glm::scale(model, glm::vec3(_x1-_x0, _y1-_y0, 1.f));
 }
 
 void Frame::setExtent(float xmin, float xmax, float ymin, float ymax){
-	model = glm::ortho(xmin, xmax, ymin, ymax, 0.f, 100.f);
+//	model = glm::ortho(xmin, xmax, ymin, ymax, 0.f, 100.f);
 }
 
 //void Frame::setPosition(float x0, float y0){
@@ -569,7 +595,7 @@ void Frame::setLayer(int l){
 //		x1, y0, 0.1f*l
 //	};
 //	setVertices(verts);	
-	model = glm::translate(model, glm::vec3(0.f, 0.f, 0.1f*(l-layer)));
+	world = glm::translate(world, glm::vec3(0.f, 0.f, 0.1f*(l-layer)));
 	layer = l;
 //	glm::vec4 a = model*glm::vec4(1.f,1.f,0.f,1.f);
 //	cout << "Frame Vec:" << a.x << " " << a.y << " " << a.z << " " << a.w << endl;
@@ -577,17 +603,48 @@ void Frame::setLayer(int l){
 }
 
 void Frame::setSize(float _x0, float _y0, float _x1, float _y1){
-	x0 = _x0; y0 = _y0; x1 = _x1; y1 = _y1;
-	model = glm::mat4(1.f);
-	model = glm::translate(model, glm::vec3(x0, y0, 0.f));
-	model = glm::scale(model, glm::vec3(x1-x0, y1-y0, 1.f));
-	model = glm::translate(model, glm::vec3(0.f, 0.f, 0.1f*layer));
+//	x0 = _x0; y0 = _y0; x1 = _x1; y1 = _y1;
+//	model = world = glm::mat4(1.f);
+	world = glm::translate(glm::mat4(1.f), glm::vec3(_x0, _y0, 0.1f*layer));
+	model = glm::scale(glm::mat4(1.f), glm::vec3(_x1-_x0, _y1-_y0, 1.f));
+//	world = glm::translate(world, glm::vec3(0.f, 0.f, ));
 
-//	glm::vec4 a = model*glm::vec4(1.f,1.f,0.f,1.f);
-//	cout << "Resized Frame Vec:" << a.x << " " << a.y << " " << a.z << " " << a.w << endl;
+//	glm::vec4 a = model*glm::vec4(0.f,0.f,0.f,1.f);
+//	cout << "Resized Vec [0,0]:" << a.x << " " << a.y << " " << a.z << " " << a.w << endl;
+//	a = model*glm::vec4(1.f,1.f,0.f,1.f);
+//	cout << "Resized Vec [1,1]:" << a.x << " " << a.y << " " << a.z << " " << a.w << endl;
+
 }
 
+//bool test_left(float x1,float y1,float x2,float y2,float xp,float yp){
+//	return ((x2 - x1) * (yp - y1) - (xp - x1) * (y2 - y1)) > 0;
+//}
 
+bool test_left(glm::vec3 x1, glm::vec3 x2, glm::vec3 p){
+	x1.z = x2.z = p.z = 0;	// take projection on z=0 plane
+	glm::vec3 crossprod = glm::cross(x2-x1, p-x1);
+	return (crossprod.z > 0);
+}
+
+bool test_near_point(glm::vec3 x, glm::vec3 p, float dist){
+	x.z = p.z = 0;	// take projection on z=0 plane
+	float len = glm::length(x-p);
+	return (len < dist);
+}
+
+bool test_near_edge(glm::vec3 p1, glm::vec3 p2, glm::vec3 p, float dist){
+	bool is_near_edge = false;
+	p1.z = p2.z = p.z = 0;	// first project all vectors on z=0 plane
+	glm::vec3 pprime = p1 + (p2-p1) * glm::dot(p-p1, p2-p1)/glm::length(p2-p1)/glm::length(p2-p1);
+//	cout << "["<<p1.x << ","<< p1.y<<","<<p1.z<<"]-->["<<p2.x << "," <<p2.y<<","<<p2.z<<"]: p-->pprime: " << p.x << " " << p.y << "-->" << pprime.x << " " << pprime.y << "| dist= " << "|" << (pprime-p).x << " "<< (pprime-p).y<< (pprime-p).z <<  "|" << glm::distance(pprime,p) << endl;
+	return (glm::length(pprime-p) < dist) && (glm::dot(pprime-p1, pprime-p2) < 0);		// near edge and inside edges
+}
+
+// treat rectangle as transformed bounding-box {p0, p2}
+// find coordinates of other 2 vertices, and check which vertex is on the left of edge p0->p2. 
+// 		let this vertex by p3, and the other p1. 
+// Therefore, going anticlockwise, the rectangle is:
+// 		p0 --> p1 --> p2 --> p3
 float Frame::containsPixel(int x, int y){
 	float winw = glutGet(GLUT_WINDOW_WIDTH);
 	float winh = glutGet(GLUT_WINDOW_HEIGHT);
@@ -595,10 +652,29 @@ float Frame::containsPixel(int x, int y){
 	float yndc = 1-2*y/winh;
 //				cout << "xyndc = " << xndc << " " << yndc << endl;
 
-	glm::vec4 p = glm::inverse(glRenderer->projection * glRenderer->view)*glm::vec4(xndc, yndc, 0.f, 1.f);
+	glm::vec4 p = glm::inverse(glRenderer->projection * glRenderer->view )*glm::vec4(xndc, yndc, 0.f, 1.f);
 //				cout << "world xy = " << p.x << " " << p.y << endl;	
 	
-	if (p.x > x0 && p.x < x1 && p.y > y0 && p.y < y1) {
+	glm::vec3 p0 = world*model*glm::vec4(bbox0,1);
+	glm::vec3 p2 = world*model*glm::vec4(bbox1,1);	// get transformed bounding-box corners
+	glm::vec3 p1 = world*model*glm::vec4(bbox0.x, bbox1.y, 0, 1);
+	glm::vec3 p3 = world*model*glm::vec4(bbox1.x, bbox0.y, 0, 1);	// get other 2 corners
+	
+	if (!test_left(p0,p2,p3)){ // p3 is assumed to be left of edge p0-->p2. IF this is not the case, swap
+		swap(p3,p1);
+	}
+	
+	bool isLeft = true;
+	isLeft = isLeft && test_left(p0, p1, p); // edge 1
+	isLeft = isLeft && test_left(p1, p2, p); // edge 2
+	isLeft = isLeft && test_left(p2, p3, p); // edge 3
+	isLeft = isLeft && test_left(p3, p0, p); // edge 4
+
+//	glm::vec3 p0 = glm::min(_p0, _p1);
+//	glm::vec3 p1 = glm::max(_p0, _p1);
+
+//	if (p.x > p0.x && p.x < p1.x && p.y > p0.y && p.y < p1.y) {
+	if (isLeft){
 		return layer;
 	}
 	else return -1e20;
@@ -611,17 +687,27 @@ int Frame::cursorLocation(int x, int y){
 	float yndc = 1-2*y/winh;
 //				cout << "xyndc = " << xndc << " " << yndc << endl;
 
-	glm::vec4 p = glm::inverse(glRenderer->projection * glRenderer->view)*glm::vec4(xndc, yndc, 0.f, 1.f);
+	glm::vec3 p = glm::inverse(glRenderer->projection * glRenderer->view)*glm::vec4(xndc, yndc, 0.f, 1.f);
 //				cout << "world xy = " << p.x << " " << p.y << endl;	
 
+	glm::vec3 p0 = world*model*glm::vec4(bbox0,1);
+	glm::vec3 p2 = world*model*glm::vec4(bbox1,1);	// get transformed bounding-box corners
+	glm::vec3 p1 = world*model*glm::vec4(bbox0.x, bbox1.y, 0, 1);
+	glm::vec3 p3 = world*model*glm::vec4(bbox1.x, bbox0.y, 0, 1);	// get other 2 corners
+	
+	if (!test_left(p0,p2,p3)){ // p3 is assumed to be left of edge p0-->p2. IF this is not the case, swap
+		swap(p3,p1);
+	}
+
 	float d = 0.5;
-	float ar = (x1-x0)/(y1-y0);
-	if (p.x > (x0+d) && p.x < (x1-d) && p.y > (y0+d*ar) && p.y < (y1-d*ar)) return 1;
-	else if (p.x < (x0-d) || p.x > (x1+d) || p.y < (y0-d*ar) || p.y > (y1+d*ar)) return 0;
-	else if (p.y > (y0-d*ar) && p.y < (y0+d*ar)) return 21;
-	else if (p.x > (x0-d) && p.x < (x0+d)) return 22;
-	else if (p.y > (y1-d*ar) && p.y < (y1+d*ar)) return 23;
-	else if (p.x > (x1-d) && p.x < (x1+d)) return 24;
+	float ar = winw/winh; //glm::length(p1-p0)/glm::length(p2-p1);
+//	cout << " --- ar = " << glm::length(p1-p0) << " " << glm::length(p2-p3)<< endl;
+	if      (test_near_edge(p0, p1, p, d*ar)) return 21;	// bottom edge
+	else if (test_near_edge(p1, p2, p, d   )) return 24;		// right edge
+	else if (test_near_edge(p2, p3, p, d*ar)) return 23;	// top edge
+	else if (test_near_edge(p3, p0, p, d   )) return 22;		// left edge
+	else if (test_near_point(world*model*glm::vec4(0.5,0.75,0,1), p, d*ar)) return 30;
+	else if (containsPixel(x,y)) return 1;
 	else return 0;
 	
 
@@ -631,10 +717,12 @@ int Frame::cursorLocation(int x, int y){
 void Frame::changeCursor(int x, int y){
 	
 	int cloc = cursorLocation(x,y);
+
 	if (cloc == 1) glutSetCursor(GLUT_CURSOR_CROSSHAIR);
 	else if (cloc == 0) glutSetCursor(GLUT_CURSOR_INHERIT);
 	else if (cloc == 21 || cloc == 23) glutSetCursor(GLUT_CURSOR_UP_DOWN);
 	else if (cloc == 22 || cloc == 24) glutSetCursor(GLUT_CURSOR_LEFT_RIGHT);
+	else if (cloc == 30) glutSetCursor(GLUT_CURSOR_CYCLE);
 	else glutSetCursor(GLUT_CURSOR_INHERIT);
 }
 
@@ -643,17 +731,82 @@ void Frame::move(float xi, float yi, float xf, float yf){
 //	glm::vec3 p0 = glm::inverse(glRenderer->projection * glRenderer->view)*glm::vec4(x0ndc, y0ndc, 0.f, 1.f);
 //				cout << "world xy = " << p0.x << " " << p0.y << " --> " 
 //					 << p.x << " " << p.y  << endl;	
+//	glm::vec3 bbsize = model*glm::vec4(bbox1,1)-model*glm::vec4(bbox0,1);
 
 	glm::vec3 dp = glm::vec3(xf,yf,0)-glm::vec3(xi,yi,0);
-	model = glm::translate(model, glm::vec3(dp.x/(x1-x0), dp.y/(y1-y0), 0));
-	x0 += dp.x; x1 += dp.x;
-	y0 += dp.y; y1 += dp.y;
+	world = glm::translate(world, dp);
+//	x0 += dp.x; x1 += dp.x;
+//	y0 += dp.y; y1 += dp.y;
 }
 
 
 void Frame::resize(float xi, float yi, float xf, float yf){
-	model = glm::scale(model, glm::vec3((xf-x0)/(xi-x0), (yf-y0)/(yi-y0), 1.f));
-	x1 += xf-xi; y1+= yf-yi;
+	glm::vec3 p0 = world*model*glm::vec4(bbox0,1);
+	glm::vec3 p2 = world*model*glm::vec4(bbox1,1);	// get transformed bounding-box corners
+	glm::vec3 p1 = world*model*glm::vec4(bbox0.x, bbox1.y, 0, 1);
+	glm::vec3 p3 = world*model*glm::vec4(bbox1.x, bbox0.y, 0, 1);	// get other 2 corners
+	
+	if (!test_left(p0,p2,p3)){ // p3 is assumed to be left of edge p0-->p2. IF this is not the case, swap
+		swap(p3,p1);
+	}
+	
+	p0.z = p1.z = p2.z = p3.z = 0;
+	glm::vec3 pi(xi,yi,0);
+	glm::vec3 pf(xf,yf,0);
+	float max_dist = -1e20, min_dist = 1e20;
+	glm::vec3 anchor;
+	if (glm::length(pi-p0) > max_dist) {anchor = p0; max_dist = glm::length(pi-p0);}
+	if (glm::length(pi-p1) > max_dist) {anchor = p1; max_dist = glm::length(pi-p1);}
+	if (glm::length(pi-p2) > max_dist) {anchor = p2; max_dist = glm::length(pi-p2);}
+	if (glm::length(pi-p3) > max_dist) {anchor = p3; max_dist = glm::length(pi-p3);}
+	cout << "anchor: [" << anchor.x << "," << anchor.y << "], p0 = [" << p0.x << " " << p0.y << "]" << endl;	
+
+//	world = glm::translate(world, glm::vec3((xf-xi)+(anchor.x-p0.x), (yf-yi)+(anchor.y-p0.x), 1.f));
+	model = glm::scale(model, glm::vec3((xf-anchor.x)/(xi-anchor.x), (yf-anchor.y)/(yi-anchor.y), 1.f));
+	if (anchor.x != p0.x) world = glm::translate(world, glm::vec3((pf-pi).x,0,0));
+	if (anchor.y != p0.y) world = glm::translate(world, glm::vec3(0,(pf-pi).y,0));
+//	model = glm::translate(model, +p0/((xf-anchor.x)/(xi-anchor.x)));
+//	cout << "t: " << 0.001*(xf-xi)*(anchor.x-p0.x) << ", s: " << (xf-anchor.x)/(xi-anchor.x) << endl;
+
+//	x1 += xf-xi; y1+= yf-yi;
+}
+
+void Frame::rotate(float xi, float yi, float xf, float yf){
+	glm::vec3 p0 = world*model*glm::vec4(bbox0,1);
+	glm::vec3 p2 = world*model*glm::vec4(bbox1,1);	// get transformed bounding-box corners
+	glm::vec3 p1 = world*model*glm::vec4(bbox0.x, bbox1.y, 0, 1);
+	glm::vec3 p3 = world*model*glm::vec4(bbox1.x, bbox0.y, 0, 1);	// get other 2 corners
+	
+	if (!test_left(p0,p2,p3)){ // p3 is assumed to be left of edge p0-->p2. IF this is not the case, swap
+		swap(p3,p1);
+	}
+	
+	p0.z = p1.z = p2.z = p3.z = 0;
+
+	glm::vec3 pi(xi,yi,0);
+	glm::vec3 pf(xf,yf,0);
+
+	glm::vec2 da=glm::normalize(pf-(p0+p2)/2.f);
+	glm::vec2 db=glm::normalize(pi-(p0+p2)/2.f);
+	float angle = glm::orientedAngle(da, db);	
+//	cout << "/_ = " << angle*360 << endl;
+
+	glm::vec3 col1(model[0][0], model[0][1], model[0][2]);
+	glm::vec3 col2(model[1][0], model[1][1], model[1][2]);
+	glm::vec3 col3(model[2][0], model[2][1], model[2][2]);
+	//Extract the scaling factors
+	glm::vec3 scaling;
+	scaling.x = glm::length(col1);
+	scaling.y = glm::length(col2);
+	scaling.z = glm::length(col3);
+
+	model = glm::translate(model, glm::vec3(0.5, 0.5, 0.f));
+	model = glm::scale(model, 1.f/scaling);
+	model = glm::rotate(model, -angle, glm::vec3(0.f, 0.f, 1.f));
+	model = glm::scale(model, scaling);
+	model = glm::translate(model, glm::vec3(-0.5, -0.5, 0.f));
+
+//	x1 += xf-xi; y1+= yf-yi;
 }
 
 // ===========================================================
@@ -672,10 +825,22 @@ void Renderer::init(){
 
 	up_axis = 010;
 
-	window_width = 2048;
+	window_width = 2048; 
 	window_height = 1024;
-	viewport_aspect_ratio = 2;
+	viewport_aspect_ratio = window_width/window_height;
+	float canvas_aspect_ratio = 2;
 	
+	int w1 = fmin(window_width, int(window_height*canvas_aspect_ratio));
+	int h1 = fmin(window_height, int(w1/canvas_aspect_ratio));
+	w1 = h1*canvas_aspect_ratio;
+	
+	w1 *= 0.9;
+	h1 *= 0.9;
+	
+	float dx = float(window_width - w1)/2*100*canvas_aspect_ratio/w1;
+	float dy = float(window_height - h1)/2*100/h1;
+	
+	cout << "dx dy = " << dx << " " << dy << endl;
 //	view = glm::translate(glm::mat4(1.0f), glm::vec3(0.f, 0.f, -100.0f) );
 	camera_tx = camera_ty = camera_rx = camera_ry = 0;
 	camera_s = 1;
@@ -685,7 +850,8 @@ void Renderer::init(){
 					   glm::vec3(0.0f, 1.0f, 0.0f));
 
  	//projection = glm::perspective(glm::radians(90.0f), float(window_width) / window_height, 0.1f, 1000.0f);
-	projection = glm::ortho(-10.0f, 110.0f, -10.0f, 110.0f, -10.f, 110.0f);
+	//projection = glm::ortho(-10.0f*viewport_aspect_ratio, 110.0f*viewport_aspect_ratio, -10.0f, 110.0f, -10.f, 110.0f);
+	projection = glm::ortho(-dx, (100*canvas_aspect_ratio+dx), -dy, 100+dy, -10.f, 110.0f);
 
 	glm::vec4 a = projection*view*glm::vec4(1,0,0,1);
 	cout << "Vec:" << a.x << " " << a.y << " " << a.z << " " << a.w << endl;
@@ -930,18 +1096,32 @@ void display(){
 
 void reshape(int w, int h){
 	
-	int w0 = glRenderer->window_width;
-	int h0 = glRenderer->window_height;
-	float a = glRenderer->viewport_aspect_ratio;
+//	int w0 = glRenderer->window_width;
+//	int h0 = glRenderer->window_height;
+	float canvas_aspect_ratio = 2;
+	float a = canvas_aspect_ratio;
 
 	int w1 = min(w, int(h*a));
 	int h1 = min(h, int(w1/a));
 	w1 = h1*a;
+	
+	h1 = h1*0.9;
+	w1 = w1*0.9;
 		
-	int x = min(w,h); 	
-    // viewport
-    glViewport(fabs(w-w1)/2, fabs(h-h1)/2, w1, h1);
-//	glRenderer->tailLen = glRenderer->tailLen_def * glRenderer->xmax*float(glRenderer->window_height)/float(x);	
+	float viewport_aspect_ratio = w/h;
+	
+	float dx = float(w - w1)/2*100*a/w1;
+	float dy = float(h - h1)/2*100/h1;
+	
+	cout << "dx dy = " << dx << " " << dy << endl;
+//	view = glm::translate(glm::mat4(1.0f), glm::vec3(0.f, 0.f, -100.0f) );
+
+	glViewport(0,0,w,h);
+ 	//projection = glm::perspective(glm::radians(90.0f), float(window_width) / window_height, 0.1f, 1000.0f);
+	//projection = glm::ortho(-10.0f*viewport_aspect_ratio, 110.0f*viewport_aspect_ratio, -10.0f, 110.0f, -10.f, 110.0f);
+	glRenderer->projection = glm::ortho(-dx, 100*canvas_aspect_ratio+dx, -dy, 100+dy, -10.f, 110.0f);
+		
+	
 }
 
 
@@ -999,45 +1179,48 @@ void mousePress(int button, int state, int x, int y){
 				mouse_x0 = x;
 				mouse_y0 = y;
 				
+				cout << "clicked at: [" << x << " " << y << "]";
+
+				float winh = glutGet(GLUT_WINDOW_HEIGHT);
+				float winw = glutGet(GLUT_WINDOW_WIDTH);
+
+				float xndc = 2*x/winw-1;
+				float yndc = 1-2*y/winh;
+
+				cout << "NDC: [" << xndc << " " << yndc << "]" << endl;
+
+				
 				if (selectionBox != NULL){
 					delete selectionBox;
 					selectionBox = NULL;
 				}
-
-				// When shape is selected, scale cursor can outside the shape, and cause it to get deselected upon clicking. Therefore, select new shape only if current selection is null or pointer is outside of currently selected shape
-				if (selectedShape == NULL  || selectedShape->cursorLocation(x,y) == 0)
-					selectedShape = glRenderer->pick(x, y);
+				
+				// When shape is selected, scale cursor can go outside the shape. 
+				// Therefore, retain current selection if it falls on current shape's edges
+				if (selectedShape != NULL  && selectedShape->cursorLocation(x,y) > 20){}
+				else selectedShape = glRenderer->pick(x, y);;
 					
 //				cout << "xy = " << x << " " << y << endl;
-				// FIXME implement bounding box in Shape itself. update bbox in setVertices. For other computations, apply model matrix to bbox
 				if (selectedShape != NULL){
-					float x0=((Frame*)selectedShape)->x0, 
-						  y0=((Frame*)selectedShape)->y0, 
-						  x1=((Frame*)selectedShape)->x1,
-						  y1=((Frame*)selectedShape)->y1;
 //					cout << "selected shape bounds: " << x0 << " " << y0 << " " << x1 << " " << y1 << endl;
-					float pos3[] = {x0,y0,100, x1,y0,100, x1,y0,100, x1,y1,100, x1,y1,100, x0,y1,100, x0,y1,100, x0,y0,100};
-					float rr=0,gg=0.3,bb=0.3,aa=1;
-					float col3[] = {rr,gg,bb, aa,
-									rr,gg,bb, aa,
-									rr,gg,bb, aa,
-									rr,gg,bb, aa,
-									rr,gg,bb, aa,
-									rr,gg,bb, aa,
-									rr,gg,bb, aa,
-									rr,gg,bb, aa
-								   };
-					
-					selectionBox = new Shape(8, 3, "lines");
+					float pos3[] = {0,0,100, 1,0,100, 1,0,100, 1,1,100, 1,1,100, 0,1,100, 0,1,100, 0,0,100, 0.5,0.5,100, 0.5,0.75,100};  //FIXME: Set this from bounding box of selected object
+					float col3[10*4];
+					for (int i=0; i<10; ++i){
+						col3[4*i+0]=0; col3[4*i+1]=0.3; col3[4*i+2]=0.3; col3[4*i+3]=1; 
+					}	
+					selectionBox = new Shape(10, 3, "lines");
 					selectionBox->setVertices(pos3);
 					selectionBox->setColors(col3);
+					selectionBox->model = selectedShape->model;
+					selectionBox->world = selectedShape->world;
 					
 					selectedShape->changeCursor(x,y);
 					
 					int a = selectedShape->cursorLocation(x,y);
 					if (a == 0) mousetransform = "";
 					else if (a == 1) mousetransform = "t";
-					else if (a > 20) mousetransform = "s";
+					else if (a > 20 && a < 30) mousetransform = "s";
+					else if (a == 30) mousetransform = "r";
 					
 				}
 			}
@@ -1108,16 +1291,25 @@ void mouseMove(int x, int y){
 		float x0ndc = 2*mouse_x0/winw-1;
 		float y0ndc = 1-2*mouse_y0/winh;
 	
-		glm::vec3 p = glm::inverse(glRenderer->projection * glRenderer->view)*glm::vec4(xndc, yndc, 0.f, 1.f);
+		glm::vec3 p  = glm::inverse(glRenderer->projection * glRenderer->view)*glm::vec4(xndc, yndc, 0.f, 1.f);
 		glm::vec3 p0 = glm::inverse(glRenderer->projection * glRenderer->view)*glm::vec4(x0ndc, y0ndc, 0.f, 1.f);
 		
 		// if any shape is selected, move the shape and the selection box
 		if (selectedShape != NULL ){
 			glm::vec3 dp = p-p0;
 
-			if (mousetransform == "t") selectedShape->move(p0.x, p0.y, p.x, p.y);
-			else if (mousetransform == "s") selectedShape->resize(p0.x, p0.y, p.x, p.y);
-			selectionBox->model = glm::translate(selectionBox->model, dp);
+			if (mousetransform == "t") {
+				selectedShape->move(p0.x, p0.y, p.x, p.y);
+			}
+			else if (mousetransform == "s"){
+				selectedShape->resize(p0.x, p0.y, p.x, p.y);
+			}
+			else if (mousetransform == "r"){
+				selectedShape->rotate(p0.x, p0.y, p.x, p.y);
+			}
+			selectionBox->model = selectedShape->model;
+			selectionBox->world = selectedShape->world;
+
 		}
 //		glRenderer->camera_rx += 0.2*(y - mouse_y0);
 //		glRenderer->camera_ry += 0.2*(x - mouse_x0);

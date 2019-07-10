@@ -16,6 +16,9 @@
 #include "../glm/gtc/matrix_transform.hpp"
 #include "../glm/gtc/type_ptr.hpp"
 
+#define GLM_ENABLE_EXPERIMENTAL
+#include "../glm/gtx/vector_angle.hpp"
+
 using namespace std;
 
 
@@ -45,6 +48,8 @@ class Shape{
 	int dim; 		//!< Number of components per vertex (2 for 2D, 3 for 3D)
 	int nElements;
 	
+	glm::vec3 bbox0, bbox1;	//!< Bounding box coordinates
+	
 	GLuint vbo, cbo, ebo, tbo;
 	GLuint tex;
 	bool textured;
@@ -57,7 +62,7 @@ class Shape{
 	string vertexShaderFile;
 	string fragmentShaderFile;
 	
-	glm::mat4 model;
+	glm::mat4 model, world;
 	
 	float pointSize;
 	
@@ -68,7 +73,7 @@ class Shape{
 	Shape(int nVert, int components_per_vertex, string _type, string shader_name= "", bool ren = true);
 	~Shape();
 
-	void setVertices(void* data);
+	void setVertices(float* data);
 	void setElements(int * elements, int n);
 	void createShaders();
 	void createColorBuffer();
@@ -99,6 +104,7 @@ class Shape{
 	virtual int   cursorLocation(int x, int y){return 0;} // tells if cursor is outside (0), inside(1), bottom-edge (21), left-edge (22), top edge(23), right edge (24)
 	virtual void  setSize(float _x0, float _y0, float _x1, float _y1){};
 	virtual void  resize(float xi, float yi, float xf, float yf){};
+	virtual void  rotate(float xi, float yi, float xf, float yf){};
 
 };
 
@@ -113,7 +119,7 @@ class Shape2D : public Shape{
 
 class Frame : public Shape{
 	public:
-	float x0, y0, x1, y1;
+//	float x0, y0, x1, y1;
 	int layer;
 	public:
 	Frame(float _x0, float _y0, float _x1, float _y1, unsigned char* image, int width, int height);
@@ -125,6 +131,7 @@ class Frame : public Shape{
 	void changeCursor(int x, int y);
 	int  cursorLocation(int x, int y); // tells if cursor is outside (0), inside(1), bottom-edge (21), left-edge (22), top edge(23), right edge (24)
 	void resize(float xi, float yi, float xf, float yf);
+	void rotate(float xi, float yi, float xf, float yf);
 };
 
 
