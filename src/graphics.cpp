@@ -459,8 +459,9 @@ vector <float> calcExtent(float* data, int nVertices, int dim){
 			min.z = fmin(min.z, data[dim*i+2]);
 			max.z = fmax(max.z, data[dim*i+2]);
 		}
-		else 
+		else{
 			min.z = max.z = 0;
+		}
 	}
 	centroid /= nVertices;
 	float dz = max.z - min.z;
@@ -699,14 +700,14 @@ int Frame::cursorLocation(int x, int y){
 		swap(p3,p1);
 	}
 
-	float d = 0.5;
+	float d = 0.7;
 	float ar = winw/winh; //glm::length(p1-p0)/glm::length(p2-p1);
 //	cout << " --- ar = " << glm::length(p1-p0) << " " << glm::length(p2-p3)<< endl;
-	if      (test_near_edge(p0, p1, p, d*ar)) return 21;	// bottom edge
-	else if (test_near_edge(p1, p2, p, d   )) return 24;		// right edge
-	else if (test_near_edge(p2, p3, p, d*ar)) return 23;	// top edge
-	else if (test_near_edge(p3, p0, p, d   )) return 22;		// left edge
-	else if (test_near_point(world*model*glm::vec4(0.5,0.75,0,1), p, d*ar)) return 30;
+	if      (test_near_edge(p0, p1, p, d)) return 21;	// bottom edge
+	else if (test_near_edge(p1, p2, p, d)) return 24;		// right edge
+	else if (test_near_edge(p2, p3, p, d)) return 23;	// top edge
+	else if (test_near_edge(p3, p0, p, d)) return 22;		// left edge
+	else if (test_near_point(world*model*glm::vec4(0.5,0.75,0,1), p, d)) return 30;
 	else if (containsPixel(x,y)) return 1;
 	else return 0;
 	
@@ -726,6 +727,7 @@ void Frame::changeCursor(int x, int y){
 	else glutSetCursor(GLUT_CURSOR_INHERIT);
 }
 
+
 void Frame::move(float xi, float yi, float xf, float yf){
 //	glm::vec3 p = glm::inverse(glRenderer->projection * glRenderer->view)*glm::vec4(xndc, yndc, 0.f, 1.f);
 //	glm::vec3 p0 = glm::inverse(glRenderer->projection * glRenderer->view)*glm::vec4(x0ndc, y0ndc, 0.f, 1.f);
@@ -740,6 +742,10 @@ void Frame::move(float xi, float yi, float xf, float yf){
 }
 
 
+glm::vec3 project_on_axis(glm::vec3 x, glm::vec3 axis){
+	return glm::normalize(axis)*glm::length(x)*glm::dot(glm::normalize(x), glm::normalize(axis));
+}
+
 void Frame::resize(float xi, float yi, float xf, float yf){
 	glm::vec3 p0 = world*model*glm::vec4(bbox0,1);
 	glm::vec3 p2 = world*model*glm::vec4(bbox1,1);	// get transformed bounding-box corners
@@ -751,24 +757,46 @@ void Frame::resize(float xi, float yi, float xf, float yf){
 	}
 	
 	p0.z = p1.z = p2.z = p3.z = 0;
+
 	glm::vec3 pi(xi,yi,0);
 	glm::vec3 pf(xf,yf,0);
+
 	float max_dist = -1e20, min_dist = 1e20;
+
 	glm::vec3 anchor;
 	if (glm::length(pi-p0) > max_dist) {anchor = p0; max_dist = glm::length(pi-p0);}
 	if (glm::length(pi-p1) > max_dist) {anchor = p1; max_dist = glm::length(pi-p1);}
 	if (glm::length(pi-p2) > max_dist) {anchor = p2; max_dist = glm::length(pi-p2);}
 	if (glm::length(pi-p3) > max_dist) {anchor = p3; max_dist = glm::length(pi-p3);}
-	cout << "anchor: [" << anchor.x << "," << anchor.y << "], p0 = [" << p0.x << " " << p0.y << "]" << endl;	
+	
+	glm::vec3 ref;
+	if (anchor == p0) {ref = p1;}
+	else if (anchor == p1) {ref = p2;}
+	else if (anchor == p2) {ref = p3;}
+	else if (anchor == p3) {ref = p0;}
 
-//	world = glm::translate(world, glm::vec3((xf-xi)+(anchor.x-p0.x), (yf-yi)+(anchor.y-p0.x), 1.f));
-	model = glm::scale(model, glm::vec3((xf-anchor.x)/(xi-anchor.x), (yf-anchor.y)/(yi-anchor.y), 1.f));
-	if (anchor.x != p0.x) world = glm::translate(world, glm::vec3((pf-pi).x,0,0));
-	if (anchor.y != p0.y) world = glm::translate(world, glm::vec3(0,(pf-pi).y,0));
-//	model = glm::translate(model, +p0/((xf-anchor.x)/(xi-anchor.x)));
-//	cout << "t: " << 0.001*(xf-xi)*(anchor.x-p0.x) << ", s: " << (xf-anchor.x)/(xi-anchor.x) << endl;
+//	cout << "anchor: [" << anchor.x << "," << anchor.y << "], p0 = [" << p0.x << " " << p0.y << "]" << "], ref = [" << ref.x << " " << ref.y << "]" <<endl;	
 
-//	x1 += xf-xi; y1+= yf-yi;
+	// project pi and pf on (anchor-->ref) axis
+	glm::vec3 projected_pf = anchor + project_on_axis(pf-anchor, ref-anchor);
+	glm::vec3 projected_pi = anchor + project_on_axis(pi-anchor, ref-anchor);
+ 		
+	float xscale = glm::length(pf-projected_pf)/glm::length(pi-projected_pi);
+	float yscale = glm::length(projected_pf-anchor)/glm::length(projected_pi-anchor);
+	
+//	cout << "scale: [" << xscale << " " << yscale << "]" << endl;
+	if (anchor == p0 || anchor == p2) swap(xscale, yscale);
+	
+	model = glm::scale(model, glm::vec3(xscale, yscale, 1.f));
+	
+	glm::vec3 p0_prime;
+	if      (anchor == p0) p0_prime = p0;
+	else if (anchor == p1) p0_prime = p1 + (p0-p1)*xscale;
+	else if (anchor == p2) p0_prime = p2 + (p1-p2)*yscale + (p0-p1)*xscale;
+	else if (anchor == p3) p0_prime = p3 + (p1-p2)*yscale;
+
+	world = glm::translate(world, p0_prime-p0);
+	
 }
 
 void Frame::rotate(float xi, float yi, float xf, float yf){
