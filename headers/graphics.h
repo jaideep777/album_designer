@@ -99,9 +99,9 @@ class Shape{
 	void useProgram();
 	
 	virtual float containsPixel(int x, int y){return -1e20;}
-	virtual void  changeCursor(int x, int y){};
+//	virtual void  changeCursor(int x, int y){};
 	virtual void  move(float xi, float yi, float xf, float yf);
-	virtual int   cursorLocation(int x, int y){return 0;} // tells if cursor is outside (0), inside(1), bottom-edge (21), left-edge (22), top edge(23), right edge (24)
+//	virtual int   cursorLocation(int x, int y){return 0;} // tells if cursor is outside (0), inside(1), bottom-edge (21), left-edge (22), top edge(23), right edge (24)
 	virtual void  setSize(float _x0, float _y0, float _x1, float _y1){};
 	virtual void  resize(float xi, float yi, float xf, float yf){};
 	virtual void  rotate(float xi, float yi, float xf, float yf){};
@@ -128,12 +128,59 @@ class Frame : public Shape{
 	void setSize(float _x0, float _y0, float _x1, float _y1);
 	float containsPixel(int x, int y);	// return z value at pixel found
 	void move(float xi, float yi, float xf, float yf);
-	void changeCursor(int x, int y);
-	int  cursorLocation(int x, int y); // tells if cursor is outside (0), inside(1), bottom-edge (21), left-edge (22), top edge(23), right edge (24)
 	void resize(float xi, float yi, float xf, float yf);
 	void rotate(float xi, float yi, float xf, float yf);
 };
 
+
+class Tool{
+	public:
+	Shape * s; 		// affected shape
+	Shape * box; 	// tool's visualization shape
+
+	public:
+	Tool(Shape * _s);
+	virtual ~Tool(){};
+	virtual void update();
+
+	virtual int  cursorLocation(int x, int y){}; // tells if cursor is outside (0), inside(1), bottom-edge (21), left-edge (22), top edge(23), right edge (24)
+	virtual void changeCursor(int x, int y){};
+
+	virtual bool blockNewSelection(int x, int y){};
+	
+	virtual void initialize(int x, int y){};
+	virtual void transform(int x, int y){};
+	virtual void finalize(int x, int y){};
+};
+
+class TransformBox2D : public Tool{
+	public:
+//	Shape * s;	// shape to be transformed
+//	Shape * box;	// box shape to be displayed
+
+	string ttype; 
+	
+	public:
+	TransformBox2D(Shape * _s);
+	~TransformBox2D();
+//	void update();
+	int  cursorLocation(int x, int y); // tells if cursor is outside (0), inside(1), bottom-edge (21), left-edge (22), top edge(23), right edge (24)
+	void changeCursor(int x, int y);
+
+	bool blockNewSelection(int x, int y);
+
+	void setTransform(int cursorLocation);
+	void transform(glm::vec3 p0, glm::vec3 p);
+
+	public:
+	void initialize(int x, int y);
+	void transform(int x, int y);
+	void finalize(int x, int y){};
+	
+//	void initialize(int x, int y);
+//	void finalize(int x, int y);
+	
+};
 
 enum UpdateMode {Step, Time};
 

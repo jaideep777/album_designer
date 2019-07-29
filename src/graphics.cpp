@@ -10,6 +10,17 @@ using namespace std;
 Renderer * glRenderer = NULL;
 int generic_count = 0;
 
+//Shape * selectionBox = NULL;
+Shape * selectedShape = NULL;
+
+Tool * activeTool = NULL;
+
+bool lMousePressed, rMousePressed, mMousePressed;
+float mouse_x0=0, mouse_y0=0;
+//string mousetransform = "";
+
+
+
 void printError(const char *context)
 {
   GLenum error = glGetError();
@@ -541,6 +552,39 @@ void Shape2D::setExtent(float xmin, float xmax, float ymin, float ymax){
 }
 
 
+bool test_left(glm::vec3 x1, glm::vec3 x2, glm::vec3 p){
+	x1.z = x2.z = p.z = 0;	// take projection on z=0 plane
+	glm::vec3 crossprod = glm::cross(x2-x1, p-x1);
+	return (crossprod.z > 0);
+}
+
+bool test_near_point(glm::vec3 x, glm::vec3 p, float dist){
+	x.z = p.z = 0;	// take projection on z=0 plane
+	float len = glm::length(x-p);
+	return (len < dist);
+}
+
+bool test_near_edge(glm::vec3 p1, glm::vec3 p2, glm::vec3 p, float dist){
+	bool is_near_edge = false;
+	p1.z = p2.z = p.z = 0;	// first project all vectors on z=0 plane
+	glm::vec3 pprime = p1 + (p2-p1) * glm::dot(p-p1, p2-p1)/glm::length(p2-p1)/glm::length(p2-p1);
+//	cout << "["<<p1.x << ","<< p1.y<<","<<p1.z<<"]-->["<<p2.x << "," <<p2.y<<","<<p2.z<<"]: p-->pprime: " << p.x << " " << p.y << "-->" << pprime.x << " " << pprime.y << "| dist= " << "|" << (pprime-p).x << " "<< (pprime-p).y<< (pprime-p).z <<  "|" << glm::distance(pprime,p) << endl;
+	return (glm::length(pprime-p) < dist) && (glm::dot(pprime-p1, pprime-p2) < 0);		// near edge and inside edges
+}
+
+// p0 --> p1 --> p2 --> p3 form a set of contiguous edges directed anticlockwise
+bool test_inside(glm::vec3 p0, glm::vec3 p1, glm::vec3 p2, glm::vec3 p3, glm::vec3 p){
+	bool isLeft = true;
+	isLeft = isLeft && test_left(p0, p1, p); // edge 1
+	isLeft = isLeft && test_left(p1, p2, p); // edge 2
+	isLeft = isLeft && test_left(p2, p3, p); // edge 3
+	isLeft = isLeft && test_left(p3, p0, p); // edge 4
+
+	return isLeft;
+}
+
+
+
 Frame::Frame(float _x0, float _y0, float _x1, float _y1, unsigned char* image, int width, int height)
 	: Shape(4,3,"triangles", "tex"){
 
@@ -621,111 +665,6 @@ void Frame::setSize(float _x0, float _y0, float _x1, float _y1){
 //	return ((x2 - x1) * (yp - y1) - (xp - x1) * (y2 - y1)) > 0;
 //}
 
-bool test_left(glm::vec3 x1, glm::vec3 x2, glm::vec3 p){
-	x1.z = x2.z = p.z = 0;	// take projection on z=0 plane
-	glm::vec3 crossprod = glm::cross(x2-x1, p-x1);
-	return (crossprod.z > 0);
-}
-
-bool test_near_point(glm::vec3 x, glm::vec3 p, float dist){
-	x.z = p.z = 0;	// take projection on z=0 plane
-	float len = glm::length(x-p);
-	return (len < dist);
-}
-
-bool test_near_edge(glm::vec3 p1, glm::vec3 p2, glm::vec3 p, float dist){
-	bool is_near_edge = false;
-	p1.z = p2.z = p.z = 0;	// first project all vectors on z=0 plane
-	glm::vec3 pprime = p1 + (p2-p1) * glm::dot(p-p1, p2-p1)/glm::length(p2-p1)/glm::length(p2-p1);
-//	cout << "["<<p1.x << ","<< p1.y<<","<<p1.z<<"]-->["<<p2.x << "," <<p2.y<<","<<p2.z<<"]: p-->pprime: " << p.x << " " << p.y << "-->" << pprime.x << " " << pprime.y << "| dist= " << "|" << (pprime-p).x << " "<< (pprime-p).y<< (pprime-p).z <<  "|" << glm::distance(pprime,p) << endl;
-	return (glm::length(pprime-p) < dist) && (glm::dot(pprime-p1, pprime-p2) < 0);		// near edge and inside edges
-}
-
-// treat rectangle as transformed bounding-box {p0, p2}
-// find coordinates of other 2 vertices, and check which vertex is on the left of edge p0->p2. 
-// 		let this vertex by p3, and the other p1. 
-// Therefore, going anticlockwise, the rectangle is:
-// 		p0 --> p1 --> p2 --> p3
-float Frame::containsPixel(int x, int y){
-	float winw = glutGet(GLUT_WINDOW_WIDTH);
-	float winh = glutGet(GLUT_WINDOW_HEIGHT);
-	float xndc = 2*x/winw-1;
-	float yndc = 1-2*y/winh;
-//				cout << "xyndc = " << xndc << " " << yndc << endl;
-
-	glm::vec4 p = glm::inverse(glRenderer->projection * glRenderer->view )*glm::vec4(xndc, yndc, 0.f, 1.f);
-//				cout << "world xy = " << p.x << " " << p.y << endl;	
-	
-	glm::vec3 p0 = world*model*glm::vec4(bbox0,1);
-	glm::vec3 p2 = world*model*glm::vec4(bbox1,1);	// get transformed bounding-box corners
-	glm::vec3 p1 = world*model*glm::vec4(bbox0.x, bbox1.y, 0, 1);
-	glm::vec3 p3 = world*model*glm::vec4(bbox1.x, bbox0.y, 0, 1);	// get other 2 corners
-	
-	if (!test_left(p0,p2,p3)){ // p3 is assumed to be left of edge p0-->p2. IF this is not the case, swap
-		swap(p3,p1);
-	}
-	
-	bool isLeft = true;
-	isLeft = isLeft && test_left(p0, p1, p); // edge 1
-	isLeft = isLeft && test_left(p1, p2, p); // edge 2
-	isLeft = isLeft && test_left(p2, p3, p); // edge 3
-	isLeft = isLeft && test_left(p3, p0, p); // edge 4
-
-//	glm::vec3 p0 = glm::min(_p0, _p1);
-//	glm::vec3 p1 = glm::max(_p0, _p1);
-
-//	if (p.x > p0.x && p.x < p1.x && p.y > p0.y && p.y < p1.y) {
-	if (isLeft){
-		return layer;
-	}
-	else return -1e20;
-}
-
-int Frame::cursorLocation(int x, int y){
-	float winw = glutGet(GLUT_WINDOW_WIDTH);
-	float winh = glutGet(GLUT_WINDOW_HEIGHT);
-	float xndc = 2*x/winw-1;
-	float yndc = 1-2*y/winh;
-//				cout << "xyndc = " << xndc << " " << yndc << endl;
-
-	glm::vec3 p = glm::inverse(glRenderer->projection * glRenderer->view)*glm::vec4(xndc, yndc, 0.f, 1.f);
-//				cout << "world xy = " << p.x << " " << p.y << endl;	
-
-	glm::vec3 p0 = world*model*glm::vec4(bbox0,1);
-	glm::vec3 p2 = world*model*glm::vec4(bbox1,1);	// get transformed bounding-box corners
-	glm::vec3 p1 = world*model*glm::vec4(bbox0.x, bbox1.y, 0, 1);
-	glm::vec3 p3 = world*model*glm::vec4(bbox1.x, bbox0.y, 0, 1);	// get other 2 corners
-	
-	if (!test_left(p0,p2,p3)){ // p3 is assumed to be left of edge p0-->p2. IF this is not the case, swap
-		swap(p3,p1);
-	}
-
-	float d = 0.7;
-	float ar = winw/winh; //glm::length(p1-p0)/glm::length(p2-p1);
-//	cout << " --- ar = " << glm::length(p1-p0) << " " << glm::length(p2-p3)<< endl;
-	if      (test_near_edge(p0, p1, p, d)) return 21;	// bottom edge
-	else if (test_near_edge(p1, p2, p, d)) return 24;		// right edge
-	else if (test_near_edge(p2, p3, p, d)) return 23;	// top edge
-	else if (test_near_edge(p3, p0, p, d)) return 22;		// left edge
-	else if (test_near_point(world*model*glm::vec4(0.5,0.75,0,1), p, d)) return 30;
-	else if (containsPixel(x,y)) return 1;
-	else return 0;
-	
-
-}
-
-
-void Frame::changeCursor(int x, int y){
-	
-	int cloc = cursorLocation(x,y);
-
-	if (cloc == 1) glutSetCursor(GLUT_CURSOR_CROSSHAIR);
-	else if (cloc == 0) glutSetCursor(GLUT_CURSOR_INHERIT);
-	else if (cloc == 21 || cloc == 23) glutSetCursor(GLUT_CURSOR_UP_DOWN);
-	else if (cloc == 22 || cloc == 24) glutSetCursor(GLUT_CURSOR_LEFT_RIGHT);
-	else if (cloc == 30) glutSetCursor(GLUT_CURSOR_CYCLE);
-	else glutSetCursor(GLUT_CURSOR_INHERIT);
-}
 
 
 void Frame::move(float xi, float yi, float xf, float yf){
@@ -837,6 +776,178 @@ void Frame::rotate(float xi, float yi, float xf, float yf){
 //	x1 += xf-xi; y1+= yf-yi;
 }
 
+
+
+
+// treat rectangle as transformed bounding-box {p0, p2}
+// find coordinates of other 2 vertices, and check which vertex is on the left of edge p0->p2. 
+// 		let this vertex by p3, and the other p1. 
+// Therefore, going anticlockwise, the rectangle is:
+// 		p0 --> p1 --> p2 --> p3
+float Frame::containsPixel(int x, int y){
+	float winw = glutGet(GLUT_WINDOW_WIDTH);
+	float winh = glutGet(GLUT_WINDOW_HEIGHT);
+	float xndc = 2*x/winw-1;
+	float yndc = 1-2*y/winh;
+//				cout << "xyndc = " << xndc << " " << yndc << endl;
+
+	glm::vec4 p = glm::inverse(glRenderer->projection * glRenderer->view )*glm::vec4(xndc, yndc, 0.f, 1.f);
+//				cout << "world xy = " << p.x << " " << p.y << endl;	
+	
+	glm::vec3 p0 = world*model*glm::vec4(bbox0,1);
+	glm::vec3 p2 = world*model*glm::vec4(bbox1,1);	// get transformed bounding-box corners
+	glm::vec3 p1 = world*model*glm::vec4(bbox0.x, bbox1.y, 0, 1);
+	glm::vec3 p3 = world*model*glm::vec4(bbox1.x, bbox0.y, 0, 1);	// get other 2 corners
+	
+	if (!test_left(p0,p2,p3)){ // p3 is assumed to be left of edge p0-->p2. IF this is not the case, swap
+		swap(p3,p1);
+	}
+	
+	bool isLeft = true;
+	isLeft = isLeft && test_left(p0, p1, p); // edge 1
+	isLeft = isLeft && test_left(p1, p2, p); // edge 2
+	isLeft = isLeft && test_left(p2, p3, p); // edge 3
+	isLeft = isLeft && test_left(p3, p0, p); // edge 4
+
+//	glm::vec3 p0 = glm::min(_p0, _p1);
+//	glm::vec3 p1 = glm::max(_p0, _p1);
+
+//	if (p.x > p0.x && p.x < p1.x && p.y > p0.y && p.y < p1.y) {
+	if (isLeft){
+		return layer;
+	}
+	else return -1e20;
+}
+
+
+Tool::Tool(Shape * _s){
+	s = _s;
+}
+
+void Tool::update(){
+	box->model = s->model;
+	box->world = s->world;
+}
+
+TransformBox2D::TransformBox2D(Shape * _s) : Tool(_s){
+	
+	float pos3[] = {s->bbox0.x,s->bbox0.y,100, s->bbox1.x,s->bbox0.y,100, 
+					s->bbox1.x,s->bbox0.y,100, s->bbox1.x,s->bbox1.y,100, 
+					s->bbox1.x,s->bbox1.y,100, s->bbox0.x,s->bbox1.y,100, 
+					s->bbox0.x,s->bbox1.y,100, s->bbox0.x,s->bbox0.y,100, 
+					(s->bbox0.x,s->bbox1.x)/2,(s->bbox0.y,s->bbox1.y)/2,100, (s->bbox0.x,s->bbox1.x)/2,(s->bbox0.y,s->bbox1.y)*0.75f,100};  
+	float col3[10*4];
+	for (int i=0; i<10; ++i){
+		col3[4*i+0]=0; col3[4*i+1]=0.3; col3[4*i+2]=0.3; col3[4*i+3]=1; 
+	}	
+	box = new Shape(10, 3, "lines");
+	box->setVertices(pos3);
+	box->setColors(col3);
+	box->model = s->model;
+	box->world = s->world;
+}
+
+TransformBox2D::~TransformBox2D(){
+	delete box;
+}
+
+//void TransformBox2D::update(){
+//	box->model = s->model;
+//	box->world = s->world;
+//}
+
+
+
+int TransformBox2D::cursorLocation(int x, int y){
+
+	float winw = glutGet(GLUT_WINDOW_WIDTH);
+	float winh = glutGet(GLUT_WINDOW_HEIGHT);
+	float xndc = 2*x/winw-1;
+	float yndc = 1-2*y/winh;
+//				cout << "xyndc = " << xndc << " " << yndc << endl;
+
+	glm::vec3 p = glm::inverse(glRenderer->projection * glRenderer->view)*glm::vec4(xndc, yndc, 0.f, 1.f);
+//				cout << "world xy = " << p.x << " " << p.y << endl;	
+
+	glm::vec3 p0 = box->world*box->model*glm::vec4(box->bbox0,1);
+	glm::vec3 p2 = box->world*box->model*glm::vec4(box->bbox1,1);	// get transformed bounding-box corners
+	glm::vec3 p1 = box->world*box->model*glm::vec4(box->bbox0.x, box->bbox1.y, 0, 1);
+	glm::vec3 p3 = box->world*box->model*glm::vec4(box->bbox1.x, box->bbox0.y, 0, 1);	// get other 2 corners
+	
+	if (!test_left(p0,p2,p3)){ // p3 is assumed to be left of edge p0-->p2. IF this is not the case, swap
+		swap(p3,p1);
+	}
+
+	float d = 0.7;
+	float ar = winw/winh; //glm::length(p1-p0)/glm::length(p2-p1);
+//	cout << " --- ar = " << glm::length(p1-p0) << " " << glm::length(p2-p3)<< endl;
+	if      (test_near_edge(p0, p1, p, d)) return 21;	// bottom edge
+	else if (test_near_edge(p1, p2, p, d)) return 24;		// right edge
+	else if (test_near_edge(p2, p3, p, d)) return 23;	// top edge
+	else if (test_near_edge(p3, p0, p, d)) return 22;		// left edge
+	else if (test_near_point(box->world*box->model*glm::vec4((box->bbox0.x,box->bbox1.x)*0.5,(box->bbox0.y,box->bbox1.y)*0.75f,0,1), p, d)) return 30;
+	else if (test_inside(p0,p1,p2,p3, p)) return 1;
+	else return 0;
+
+}
+
+
+void TransformBox2D::changeCursor(int x, int y){
+	
+	int cloc = cursorLocation(x,y);
+
+	if (cloc == 1) glutSetCursor(GLUT_CURSOR_CROSSHAIR);
+	else if (cloc == 0) glutSetCursor(GLUT_CURSOR_INHERIT);
+	else if (cloc == 21 || cloc == 23) glutSetCursor(GLUT_CURSOR_UP_DOWN);
+	else if (cloc == 22 || cloc == 24) glutSetCursor(GLUT_CURSOR_LEFT_RIGHT);
+	else if (cloc == 30) glutSetCursor(GLUT_CURSOR_CYCLE);
+	else glutSetCursor(GLUT_CURSOR_INHERIT);
+}
+
+bool TransformBox2D::blockNewSelection(int x, int y){
+	return cursorLocation(x,y) > 1; // Block if cursor is on edges
+}
+
+
+void TransformBox2D::setTransform(int cursorLoc){
+	int a = cursorLoc; 
+	if (a == 0) ttype = "";
+	else if (a == 1) ttype = "t";
+	else if (a > 20 && a < 30) ttype = "s";
+	else if (a == 30) ttype = "r";
+}
+
+
+void TransformBox2D::transform(int x, int y){
+	float winh = glutGet(GLUT_WINDOW_HEIGHT);
+	float winw = glutGet(GLUT_WINDOW_WIDTH);
+
+	float xndc = 2*x/winw-1;
+	float yndc = 1-2*y/winh;
+
+	float x0ndc = 2*mouse_x0/winw-1;
+	float y0ndc = 1-2*mouse_y0/winh;
+
+	glm::vec3 p  = glm::inverse(glRenderer->projection * glRenderer->view)*glm::vec4(xndc, yndc, 0.f, 1.f);
+	glm::vec3 p0 = glm::inverse(glRenderer->projection * glRenderer->view)*glm::vec4(x0ndc, y0ndc, 0.f, 1.f);
+
+	if (ttype == "t") {
+		s->move(p0.x, p0.y, p.x, p.y);
+	}
+	else if (ttype == "s"){
+		s->resize(p0.x, p0.y, p.x, p.y);
+	}
+	else if (ttype == "r"){
+		s->rotate(p0.x, p0.y, p.x, p.y);
+	}
+	update();
+}
+
+void TransformBox2D::initialize(int x, int y){
+	setTransform(cursorLocation(x,y));
+	changeCursor(x,y);
+}
+
 // ===========================================================
 // class Renderer
 // ===========================================================
@@ -914,6 +1025,7 @@ int Renderer::addShape(Shape* shp){
 	shapes_vec.push_back(shp);
 }
 
+// TODO: Makes shapes_vec a list rather than a vector
 int Renderer::removeShape(Shape* shp){
 	shapes_vec.erase(find(shapes_vec.begin(), shapes_vec.end(), shp));
 }
@@ -1192,12 +1304,6 @@ void keyPress(unsigned char key, int x, int y){
 
 }
 
-Shape * selectionBox = NULL;
-Shape * selectedShape = NULL;
-
-bool lMousePressed, rMousePressed, mMousePressed;
-float mouse_x0=0, mouse_y0=0;
-string mousetransform = "";
 
 void mousePress(int button, int state, int x, int y){
 	switch (button) {
@@ -1215,52 +1321,35 @@ void mousePress(int button, int state, int x, int y){
 				float xndc = 2*x/winw-1;
 				float yndc = 1-2*y/winh;
 
-				cout << "NDC: [" << xndc << " " << yndc << "]" << endl;
+				cout << ", NDC: [" << xndc << " " << yndc << "]" << endl;
 
-				
-				if (selectionBox != NULL){
-					delete selectionBox;
-					selectionBox = NULL;
-				}
-				
 				// When shape is selected, scale cursor can go outside the shape. 
-				// Therefore, retain current selection if it falls on current shape's edges
-				if (selectedShape != NULL  && selectedShape->cursorLocation(x,y) > 20){}
-				else selectedShape = glRenderer->pick(x, y);;
-					
-//				cout << "xy = " << x << " " << y << endl;
-				if (selectedShape != NULL){
-//					cout << "selected shape bounds: " << x0 << " " << y0 << " " << x1 << " " << y1 << endl;
-					float pos3[] = {0,0,100, 1,0,100, 1,0,100, 1,1,100, 1,1,100, 0,1,100, 0,1,100, 0,0,100, 0.5,0.5,100, 0.5,0.75,100};  //FIXME: Set this from bounding box of selected object
-					float col3[10*4];
-					for (int i=0; i<10; ++i){
-						col3[4*i+0]=0; col3[4*i+1]=0.3; col3[4*i+2]=0.3; col3[4*i+3]=1; 
-					}	
-					selectionBox = new Shape(10, 3, "lines");
-					selectionBox->setVertices(pos3);
-					selectionBox->setColors(col3);
-					selectionBox->model = selectedShape->model;
-					selectionBox->world = selectedShape->world;
-					
-					selectedShape->changeCursor(x,y);
-					
-					int a = selectedShape->cursorLocation(x,y);
-					if (a == 0) mousetransform = "";
-					else if (a == 1) mousetransform = "t";
-					else if (a > 20 && a < 30) mousetransform = "s";
-					else if (a == 30) mousetransform = "r";
-					
+				// if no tool is already working or currect tool is not blocking new selection, pick new shape
+				Shape * selectedShape_old = selectedShape;
+				if (activeTool == NULL  || !activeTool->blockNewSelection(x,y)){
+					selectedShape = glRenderer->pick(x, y);
 				}
+					
+				if (selectedShape == NULL){
+					if (activeTool != NULL){
+						delete activeTool; 
+						activeTool = NULL;
+					}
+				}
+				else {
+					if (selectedShape != selectedShape_old){
+						if (activeTool != NULL){
+							delete activeTool;
+							activeTool = NULL;
+						}
+						activeTool = new TransformBox2D(selectedShape);
+					}
+					activeTool->initialize(x,y);
+				}
+				
 			}
 			else{
 				lMousePressed = 0;
-				mousetransform = "";
-//				if (selectedShape != NULL) selectedShape->changeCursor(x,y);
-
-//				if (selectionBox != NULL){
-//					delete selectionBox;
-//					selectionBox = NULL;
-//				}
 			} 
 		break;
 
@@ -1294,50 +1383,19 @@ void mousePress(int button, int state, int x, int y){
 }
 
 void mouseHover(int x, int y){
-	if (selectedShape != NULL){
-		selectedShape->changeCursor(x,y);
+	if (activeTool != NULL){
+		activeTool->changeCursor(x,y);
 	}
 }
 
 void mouseMove(int x, int y){
-	float winh = glutGet(GLUT_WINDOW_HEIGHT);
-	float winw = glutGet(GLUT_WINDOW_WIDTH);
-	
-//	cout << "transform: " << mousetransform << endl;
-	
-	int cursorLoc = 0;
-	if (selectedShape != NULL){
-		cursorLoc = selectedShape->cursorLocation(x,y);
-		selectedShape->changeCursor(x,y);
-	}
-	
+		
 	if (lMousePressed == 1){
 		// get initial and final mouse position in world coordinates
-		float xndc = 2*x/winw-1;
-		float yndc = 1-2*y/winh;
-
-		float x0ndc = 2*mouse_x0/winw-1;
-		float y0ndc = 1-2*mouse_y0/winh;
-	
-		glm::vec3 p  = glm::inverse(glRenderer->projection * glRenderer->view)*glm::vec4(xndc, yndc, 0.f, 1.f);
-		glm::vec3 p0 = glm::inverse(glRenderer->projection * glRenderer->view)*glm::vec4(x0ndc, y0ndc, 0.f, 1.f);
 		
 		// if any shape is selected, move the shape and the selection box
-		if (selectedShape != NULL ){
-			glm::vec3 dp = p-p0;
-
-			if (mousetransform == "t") {
-				selectedShape->move(p0.x, p0.y, p.x, p.y);
-			}
-			else if (mousetransform == "s"){
-				selectedShape->resize(p0.x, p0.y, p.x, p.y);
-			}
-			else if (mousetransform == "r"){
-				selectedShape->rotate(p0.x, p0.y, p.x, p.y);
-			}
-			selectionBox->model = selectedShape->model;
-			selectionBox->world = selectedShape->world;
-
+		if (selectedShape != NULL){
+			activeTool->transform(x,y);
 		}
 //		glRenderer->camera_rx += 0.2*(y - mouse_y0);
 //		glRenderer->camera_ry += 0.2*(x - mouse_x0);
